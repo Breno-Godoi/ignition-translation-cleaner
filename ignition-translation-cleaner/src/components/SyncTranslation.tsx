@@ -91,7 +91,10 @@ const SyncTranslation: React.FC = () => {
           </div>
 
           {files.length > 0 && (
-            <div className="mt-3 text-start mx-auto" style={{ maxWidth: "500px" }}>
+            <div
+              className="mt-3 text-start mx-auto"
+              style={{ maxWidth: "500px" }}
+            >
               <ul className="list-group">
                 {files.map((file, index) => (
                   <li
@@ -151,9 +154,18 @@ const SyncTranslation: React.FC = () => {
         </div>
       )}
 
-      {mergedTerms.length > 0 && conflicts.length === 0 && (
+      {mergedTerms.length > 0 && (
         <div className="alert alert-success">
-          <p>Merged {mergedTerms.length} translation terms successfully.</p>
+          <p>
+            Merged {mergedTerms.length} translation terms successfully.
+            {conflicts.length > 0 && (
+              <>
+                <br />
+                <strong>Note:</strong> {conflicts.length} conflicting keys were
+                excluded.
+              </>
+            )}
+          </p>
           <button className="btn btn-success" onClick={handleDownload}>
             Download Merged XML
           </button>
