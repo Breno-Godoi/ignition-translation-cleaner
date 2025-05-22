@@ -22,13 +22,17 @@ const FileUpload: React.FC<FileUploadProps> = ({
   return (
     <div className="mb-4 text-center">
       <label className="form-label fw-semibold">{label}</label>
-      <div className="d-flex justify-content-center">
+      <div>
         <input
+          id="file-input"
           type="file"
-          className="form-control w-auto"
+          className="d-none"
           accept={accept}
           onChange={handleChange}
         />
+        <label htmlFor="file-input" className="btn btn-primary">
+          Upload File
+        </label>
       </div>
     </div>
   );

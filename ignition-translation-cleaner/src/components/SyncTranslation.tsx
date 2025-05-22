@@ -13,8 +13,21 @@ const SyncTranslation = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const selectedFiles = Array.from(e.target.files).slice(0, 4);
-      setFiles(selectedFiles);
+      const newFiles = Array.from(e.target.files);
+      const uniqueFiles = [...files];
+
+      newFiles.forEach((newFile) => {
+        if (
+          !uniqueFiles.find(
+            (f) => f.name === newFile.name && f.size === newFile.size
+          )
+        ) {
+          uniqueFiles.push(newFile);
+        }
+      });
+
+      setFiles(uniqueFiles);
+      e.target.value = ""; // Reset input so user can re-add same file if needed
     }
   };
 
@@ -64,15 +77,51 @@ const SyncTranslation = () => {
         <label htmlFor="xmlFiles" className="form-label fw-semibold">
           Upload up to 4 Translation XML files
         </label>
-        <div className="d-flex justify-content-center">
-          <input
-            type="file"
-            className="form-control w-auto"
-            id="xmlFiles"
-            accept=".xml"
-            multiple
-            onChange={handleFileChange}
-          />
+        <div className="text-center">
+          <div className="mb-3">
+            <input
+              id="multi-file-input"
+              type="file"
+              className="d-none"
+              accept=".xml"
+              multiple
+              onChange={handleFileChange}
+            />
+
+            <label htmlFor="multi-file-input" className="btn btn-primary">
+              Upload XML Files
+            </label>
+          </div>
+
+          {files.length > 0 && (
+            <div
+              className="mt-3 text-start mx-auto"
+              style={{ maxWidth: "500px" }}
+            >
+              <ul className="list-group">
+                {files.map((file, index) => (
+                  <li
+                    key={index}
+                    className="list-group-item d-flex justify-content-between align-items-center"
+                  >
+                    <span className="text-truncate" style={{ maxWidth: "80%" }}>
+                      {file.name}
+                    </span>
+                    <button
+                      className="btn btn-close btn-sm"
+                      style={{ padding: "0.5rem" }}
+                      aria-label="Remove file"
+                      onClick={() => {
+                        const newFiles = [...files];
+                        newFiles.splice(index, 1);
+                        setFiles(newFiles);
+                      }}
+                    ></button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
 

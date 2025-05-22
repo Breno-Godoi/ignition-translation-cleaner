@@ -44,6 +44,10 @@ input[type="file"] {
   max-width: 600px;
   margin: 0 auto;
 }
+.list-group-item {
+  font-size: 0.9rem;
+}
+
 
 /* Table tweaks */
 .table th,
