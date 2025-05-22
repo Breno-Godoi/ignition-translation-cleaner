@@ -1,15 +1,17 @@
 // src/components/SyncTranslation.tsx
-import { useState } from "react";
+import React, { useState } from "react";
 import { parseTranslationXML } from "../utils/xmlParser";
 import type { TranslationTerm } from "../utils/xmlParser";
 import { buildTranslationXML } from "../utils/xmlBuilder";
+import { mergeTranslationFiles } from "../utils/mergeTranslations";
 
-const SyncTranslation = () => {
+const SyncTranslation: React.FC = () => {
   const [files, setFiles] = useState<File[]>([]);
   const [mergedTerms, setMergedTerms] = useState<TranslationTerm[]>([]);
   const [conflicts, setConflicts] = useState<
     { key: string; values: string[] }[]
   >([]);
+  const [mergeLog, setMergeLog] = useState<string>("");
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -27,37 +29,33 @@ const SyncTranslation = () => {
       });
 
       setFiles(uniqueFiles);
-      e.target.value = ""; // Reset input so user can re-add same file if needed
+      e.target.value = ""; // Reset input
     }
   };
 
   const handleMerge = async () => {
-    const allTerms: { [key: string]: Set<string> } = {};
+    const parsedFiles: TranslationTerm[][] = [];
 
     for (const file of files) {
       const content = await file.text();
       const terms = parseTranslationXML(content);
-      terms.forEach((term) => {
-        if (!allTerms[term.key]) {
-          allTerms[term.key] = new Set();
-        }
-        allTerms[term.key].add(term.text);
-      });
+      console.log(`Parsed ${file.name}:`, terms);
+      parsedFiles.push(terms);
     }
 
-    const merged: TranslationTerm[] = [];
-    const conflictList: { key: string; values: string[] }[] = [];
-
-    Object.entries(allTerms).forEach(([key, texts]) => {
-      if (texts.size === 1) {
-        merged.push({ key, text: Array.from(texts)[0] });
-      } else {
-        conflictList.push({ key, values: Array.from(texts) });
-      }
-    });
-
+    const { merged, conflicts } = mergeTranslationFiles(parsedFiles);
     setMergedTerms(merged);
-    setConflicts(conflictList);
+    setConflicts(conflicts);
+
+    // Update log
+    const logOutput = [
+      `Files merged: ${files.length}`,
+      `Total unique keys: ${merged.length}`,
+      `Conflicts found: ${conflicts.length}`,
+    ].join("\n");
+
+    console.log(logOutput);
+    setMergeLog(logOutput);
   };
 
   const handleDownload = () => {
@@ -87,17 +85,13 @@ const SyncTranslation = () => {
               multiple
               onChange={handleFileChange}
             />
-
             <label htmlFor="multi-file-input" className="btn btn-primary">
               Upload XML Files
             </label>
           </div>
 
           {files.length > 0 && (
-            <div
-              className="mt-3 text-start mx-auto"
-              style={{ maxWidth: "500px" }}
-            >
+            <div className="mt-3 text-start mx-auto" style={{ maxWidth: "500px" }}>
               <ul className="list-group">
                 {files.map((file, index) => (
                   <li
@@ -125,7 +119,7 @@ const SyncTranslation = () => {
         </div>
       </div>
 
-      <div className="d-flex justify-content-center">
+      <div className="d-flex flex-column align-items-center">
         <button
           className="btn btn-primary mb-3"
           onClick={handleMerge}
@@ -133,6 +127,15 @@ const SyncTranslation = () => {
         >
           Merge Translations
         </button>
+
+        {mergeLog && (
+          <pre
+            className="text-start bg-light p-3 border rounded"
+            style={{ maxWidth: "600px", width: "100%" }}
+          >
+            {mergeLog}
+          </pre>
+        )}
       </div>
 
       {conflicts.length > 0 && (
