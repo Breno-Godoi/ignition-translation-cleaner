@@ -1,0 +1,114 @@
+// src/components/SyncTranslation.tsx
+import { useState } from "react";
+import { parseTranslationXML } from "../utils/xmlParser";
+import type { TranslationTerm } from "../utils/xmlParser";
+import { buildTranslationXML } from "../utils/xmlBuilder";
+
+const SyncTranslation = () => {
+  const [files, setFiles] = useState<File[]>([]);
+  const [mergedTerms, setMergedTerms] = useState<TranslationTerm[]>([]);
+  const [conflicts, setConflicts] = useState<
+    { key: string; values: string[] }[]
+  >([]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const selectedFiles = Array.from(e.target.files).slice(0, 4);
+      setFiles(selectedFiles);
+    }
+  };
+
+  const handleMerge = async () => {
+    const allTerms: { [key: string]: Set<string> } = {};
+
+    for (const file of files) {
+      const content = await file.text();
+      const terms = parseTranslationXML(content);
+      terms.forEach((term) => {
+        if (!allTerms[term.key]) {
+          allTerms[term.key] = new Set();
+        }
+        allTerms[term.key].add(term.text);
+      });
+    }
+
+    const merged: TranslationTerm[] = [];
+    const conflictList: { key: string; values: string[] }[] = [];
+
+    Object.entries(allTerms).forEach(([key, texts]) => {
+      if (texts.size === 1) {
+        merged.push({ key, text: Array.from(texts)[0] });
+      } else {
+        conflictList.push({ key, values: Array.from(texts) });
+      }
+    });
+
+    setMergedTerms(merged);
+    setConflicts(conflictList);
+  };
+
+  const handleDownload = () => {
+    const xmlContent = buildTranslationXML(mergedTerms);
+    const blob = new Blob([xmlContent], { type: "application/xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "merged_translations.xml";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      <div className="mb-4 text-center">
+        <label htmlFor="xmlFiles" className="form-label fw-semibold">
+          Upload up to 4 Translation XML files
+        </label>
+        <div className="d-flex justify-content-center">
+          <input
+            type="file"
+            className="form-control w-auto"
+            id="xmlFiles"
+            accept=".xml"
+            multiple
+            onChange={handleFileChange}
+          />
+        </div>
+      </div>
+
+      <div className="d-flex justify-content-center">
+        <button
+          className="btn btn-primary mb-3"
+          onClick={handleMerge}
+          disabled={files.length === 0}
+        >
+          Merge Translations
+        </button>
+      </div>
+
+      {conflicts.length > 0 && (
+        <div className="alert alert-danger">
+          <h5>Conflicting Keys Detected:</h5>
+          <ul>
+            {conflicts.map((conflict) => (
+              <li key={conflict.key}>
+                <strong>{conflict.key}</strong>: {conflict.values.join(" | ")}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {mergedTerms.length > 0 && conflicts.length === 0 && (
+        <div className="alert alert-success">
+          <p>Merged {mergedTerms.length} translation terms successfully.</p>
+          <button className="btn btn-success" onClick={handleDownload}>
+            Download Merged XML
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default SyncTranslation;

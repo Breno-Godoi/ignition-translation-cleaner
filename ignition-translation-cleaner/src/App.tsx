@@ -1,16 +1,19 @@
 // src/App.tsx
-import { useState } from 'react';
-import FileUpload from './components/FileUpload';
-import TermReviewTable from './components/TermReviewTable';
-import { parseTranslationXML } from './utils/xmlParser';
-import type { TranslationTerm } from './utils/xmlParser';
-import { extractTextFilesFromZip, detectUsedKeys } from './utils/zipScanner';
-import ExportButton from './components/ExportButton';
-import "bootstrap-icons/font/bootstrap-icons.css";
-import 'bootstrap/dist/css/bootstrap.min.css';
-import './App.css';
+import { useState } from "react";
+import FileUpload from "./components/FileUpload";
+import TermReviewTable from "./components/TermReviewTable";
+import ExportButton from "./components/ExportButton";
+import SyncTranslation from "./components/SyncTranslation";
+import { parseTranslationXML } from "./utils/xmlParser";
+import type { TranslationTerm } from "./utils/xmlParser";
+import { extractTextFilesFromZip, detectUsedKeys } from "./utils/zipScanner";
+import "bootstrap/dist/css/bootstrap.min.css";
+import "./App.css";
 
 function App() {
+  const [activeTab, setActiveTab] = useState<"sync" | "cleaner">("sync");
+
+  // States for Translation Cleaner
   const [terms, setTerms] = useState<TranslationTerm[]>([]);
   const [usedKeys, setUsedKeys] = useState<Set<string>>(new Set());
   const [keptKeys, setKeptKeys] = useState<Set<string>>(new Set());
@@ -27,15 +30,13 @@ function App() {
   };
 
   const handleProjectZipSelect = async (file: File) => {
-    console.log("Selected ZIP:", file.name);
-
     if (terms.length === 0) {
       alert("Please upload the Translations XML first.");
       return;
     }
 
     const files = await extractTextFilesFromZip(file);
-    const keys = terms.map(term => term.key);
+    const keys = terms.map((term) => term.key);
     const used = detectUsedKeys(files, keys);
 
     setUsedKeys(used);
@@ -44,45 +45,74 @@ function App() {
 
   return (
     <div className="container py-5">
-      <h2 className="mb-4">Ignition Translation Cleaner</h2>
+      <div className="row justify-content-center">
+        <div className="col-lg-10 col-md-12">
+          <h2 className="mb-4 text-center">Ignition Translation Tool</h2>
 
-      <FileUpload
-        label="Upload Translations XML"
-        accept=".xml"
-        onFileSelect={handleTranslationSelect}
-      />
+          <ul className="nav nav-tabs mb-4 d-flex flex-row justify-content-center">
+            <li className="nav-item">
+              <button
+                className={`nav-link ${activeTab === "sync" ? "active" : ""}`}
+                onClick={() => setActiveTab("sync")}
+              >
+                Sync Translation
+              </button>
+            </li>
+            <li className="nav-item">
+              <button
+                className={`nav-link ${
+                  activeTab === "cleaner" ? "active" : ""
+                }`}
+                onClick={() => setActiveTab("cleaner")}
+              >
+                Translation Cleaner
+              </button>
+            </li>
+          </ul>
 
-      <FileUpload
-        label="Upload Ignition Project ZIP"
-        accept=".zip"
-        onFileSelect={handleProjectZipSelect}
-      />
+          {activeTab === "sync" && <SyncTranslation />}
 
-      {terms.length > 0 && (
-        <div className="alert alert-success mt-4">
-          ✅ {terms.length} translation terms parsed from XML.
-        </div>
-      )}
+          {activeTab === "cleaner" && (
+            <>
+              <FileUpload
+                label="Upload Translations XML"
+                accept=".xml"
+                onFileSelect={handleTranslationSelect}
+              />
 
-      {usedKeys.size > 0 && (
-        <div className="alert alert-info mt-2">
-          🔍 {usedKeys.size} used keys detected in project files.
-        </div>
-      )}
+              <FileUpload
+                label="Upload Ignition Project ZIP"
+                accept=".zip"
+                onFileSelect={handleProjectZipSelect}
+              />
 
-      {terms.length > 0 && usedKeys.size > 0 && (
-        <>
-          <TermReviewTable
-            terms={terms}
-            usedKeys={usedKeys}
-            onSelectionChange={setKeptKeys}
-          />
-          {keptKeys.size > 0 && (
-            <ExportButton terms={terms} keptKeys={keptKeys} />
+              {terms.length > 0 && (
+                <div className="alert alert-success mt-4">
+                  {terms.length} translation terms parsed from XML.
+                </div>
+              )}
+
+              {usedKeys.size > 0 && (
+                <div className="alert alert-info mt-2">
+                  {usedKeys.size} used keys detected in project files.
+                </div>
+              )}
+
+              {terms.length > 0 && usedKeys.size > 0 && (
+                <TermReviewTable
+                  terms={terms}
+                  usedKeys={usedKeys}
+                  onSelectionChange={setKeptKeys}
+                />
+              )}
+
+              {keptKeys.size > 0 && (
+                <ExportButton terms={terms} keptKeys={keptKeys} />
+              )}
+            </>
           )}
-        </>
-      )}
-
+        </div>
+      </div>
     </div>
   );
 }

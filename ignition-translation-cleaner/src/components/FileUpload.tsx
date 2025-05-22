@@ -1,5 +1,5 @@
 // src/components/FileUpload.tsx
-import React from 'react';
+import React from "react";
 
 interface FileUploadProps {
   label: string;
@@ -7,7 +7,11 @@ interface FileUploadProps {
   onFileSelect: (file: File) => void;
 }
 
-const FileUpload: React.FC<FileUploadProps> = ({ label, accept, onFileSelect }) => {
+const FileUpload: React.FC<FileUploadProps> = ({
+  label,
+  accept,
+  onFileSelect,
+}) => {
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -16,14 +20,16 @@ const FileUpload: React.FC<FileUploadProps> = ({ label, accept, onFileSelect }) 
   };
 
   return (
-    <div className="mb-3">
-      <label className="form-label">{label}</label>
-      <input
-        type="file"
-        className="form-control"
-        accept={accept}
-        onChange={handleChange}
-      />
+    <div className="mb-4 text-center">
+      <label className="form-label fw-semibold">{label}</label>
+      <div className="d-flex justify-content-center">
+        <input
+          type="file"
+          className="form-control w-auto"
+          accept={accept}
+          onChange={handleChange}
+        />
+      </div>
     </div>
   );
 };
