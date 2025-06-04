@@ -52,9 +52,11 @@ function App() {
     <div className="container py-5">
       <div className="row justify-content-center">
         <div className="col-lg-10 col-md-12">
+
           <div className="position-relative mb-4">
             <h2 className="m-0 w-100 text-center">Ignition Translation Tool</h2>
             <div className="form-check form-switch position-absolute top-0 end-0">
+
               <input
                 className="form-check-input"
                 type="checkbox"
