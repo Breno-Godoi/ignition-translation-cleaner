@@ -6,6 +6,11 @@ body {
   color: #333;
 }
 
+body[data-bs-theme='dark'] {
+  background-color: #212529;
+  color: #f8f9fa;
+}
+
 #root {
   width: 100%;
   max-width: 1140px;
@@ -17,7 +22,7 @@ body {
 h2 {
   font-size: 2rem;
   font-weight: 600;
-  text-align: left;
+  text-align: center;
   margin-bottom: 2rem;
 }
 
@@ -32,8 +37,13 @@ h2 {
 }
 .nav-tabs .nav-link.active {
   font-weight: 600;
-  color: #0d6efd;
-  background-color: #e9ecef;
+  color: var(--bs-nav-tabs-link-active-color);
+  background-color: var(--bs-nav-tabs-link-active-bg);
+}
+
+body[data-bs-theme='dark'] .nav-tabs .nav-link.active {
+  color: #fff;
+  background-color: #495057;
 }
 
 /* File upload layout */
