@@ -133,7 +133,7 @@ const SyncTranslation: React.FC = () => {
 
         {mergeLog && (
           <pre
-            className="text-start bg-light p-3 border rounded"
+            className="text-start bg-body-secondary text-body p-3 border rounded"
             style={{ maxWidth: "600px", width: "100%" }}
           >
             {mergeLog}
