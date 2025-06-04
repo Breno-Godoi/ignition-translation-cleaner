@@ -1,5 +1,5 @@
 // src/App.tsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import FileUpload from "./components/FileUpload";
 import TermReviewTable from "./components/TermReviewTable";
 import ExportButton from "./components/ExportButton";
@@ -12,11 +12,16 @@ import "./App.css";
 
 function App() {
   const [activeTab, setActiveTab] = useState<"sync" | "cleaner">("sync");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
 
   // States for Translation Cleaner
   const [terms, setTerms] = useState<TranslationTerm[]>([]);
   const [usedKeys, setUsedKeys] = useState<Set<string>>(new Set());
   const [keptKeys, setKeptKeys] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    document.body.setAttribute("data-bs-theme", theme);
+  }, [theme]);
 
   const handleTranslationSelect = (file: File) => {
     const reader = new FileReader();
@@ -47,7 +52,21 @@ function App() {
     <div className="container py-5">
       <div className="row justify-content-center">
         <div className="col-lg-10 col-md-12">
-          <h2 className="mb-4 text-center">Ignition Translation Tool</h2>
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <h2 className="m-0">Ignition Translation Tool</h2>
+            <div className="form-check form-switch">
+              <input
+                className="form-check-input"
+                type="checkbox"
+                id="themeSwitch"
+                checked={theme === "dark"}
+                onChange={() => setTheme(theme === "dark" ? "light" : "dark")}
+              />
+              <label className="form-check-label" htmlFor="themeSwitch">
+                {theme === "dark" ? "Dark" : "Light"} Mode
+              </label>
+            </div>
+          </div>
 
           <ul className="nav nav-tabs mb-4 d-flex flex-row justify-content-center">
             <li className="nav-item">
