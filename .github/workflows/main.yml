@@ -1,0 +1,47 @@
+name: Deploy to VM via Tailscale
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.VM_SSH_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            rm -rf ~/projects/translation-cleaner/*
+            mkdir -p ~/projects/translation-cleaner
+            cd ~/projects/translation-cleaner
+            echo "${{ github.repository }}" > .git_origin
+            exit 0
+
+      - name: Copy project files to VM
+        uses: appleboy/scp-action@v0.1.5
+        with:
+          host: ${{ secrets.VM_SSH_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: "."
+          target: "~/projects/translation-cleaner"
+
+      - name: Rebuild and restart Docker Compose app
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.VM_SSH_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            cd ~/projects/translation-cleaner
+            docker compose down
+            docker compose up -d --build
