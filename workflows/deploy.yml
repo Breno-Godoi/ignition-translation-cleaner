@@ -1,0 +1,38 @@
+name: Deploy to G3 VM
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Copy source code to server via SSH
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_SSH_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: "."
+          target: "~/projects/translation-cleaner"
+
+      - name: Rebuild and restart container on server
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.VM_SSH_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            cd ~/projects/translation-cleaner
+            docker rm -f translation-app || true
+            docker build -t translation-app .
+            docker run -d \
+              --name translation-app \
+              -p 3000:80 \
+              --restart unless-stopped \
+              translation-app
