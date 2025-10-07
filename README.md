@@ -1,1 +1,0 @@
-# ignition_tranlate_sync_tool
