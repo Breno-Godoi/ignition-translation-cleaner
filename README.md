@@ -39,16 +39,25 @@ How it works:
 - Detects:
   - Missing definitions per file
   - Definition mismatches for same UDT name
+  - Mismatch type details:
+    - Missing properties only
+    - Unequal values only
+    - Missing properties + unequal values
 - Shows expandable differences with:
   - Highlighted JSON sections
   - Variant-level missing/unequal summaries
   - Copy JSON buttons
+  - Optional per-finding `Union merge` switch (available for missing-properties-only mismatches)
+  - Glossary info button for Difference/Mismatch/Missing/Unequal terms
   - Collapse single / Collapse all controls
+  - Optional debug tools toggle (reveals temporary debug export actions)
 
 Merge rule:
 - Uses the first uploaded file as reference.
-- For UDT names that exist in the reference file, the merged output keeps that reference definition.
+- By default, for UDT names that exist in the reference file, the merged output keeps that reference definition.
 - If a UDT name is missing in the reference file, it keeps the first occurrence by upload order.
+- For mismatches that are `missing properties only`, you can enable `Union merge` on that finding to include the union of unique properties from all variants in the final export.
+- `Union merge` does not override unequal-value conflicts; those continue following the reference-based rule.
 - Produces a merged JSON with unique UDT names.
 
 Output:

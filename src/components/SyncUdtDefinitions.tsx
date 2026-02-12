@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   normalizeJsonForDisplay,
   parseUdtFile,
@@ -27,6 +27,15 @@ interface VariantPathDetail {
 interface VariantDifferenceDetail {
   missingProperties: VariantPathDetail[];
   unequalValues: VariantPathDetail[];
+}
+
+interface DifferenceInspection {
+  normalizedVariantDefinitions: JsonValue[];
+  mismatchPaths: Set<string>;
+  variantDifferenceDetails: VariantDifferenceDetail[];
+  missingPropertyCount: number;
+  unequalValueCount: number;
+  isMissingOnlyDefinitionDifference: boolean;
 }
 
 const MISSING_JSON_VALUE = Symbol("missing-json-value");
@@ -291,6 +300,143 @@ const analyzeVariantDifferences = (
   }));
 };
 
+const deepCloneJsonObject = (value: JsonObject): JsonObject =>
+  JSON.parse(JSON.stringify(value)) as JsonObject;
+
+const inspectDifference = (difference: UdtDifference): DifferenceInspection => {
+  const normalizedVariantDefinitions = difference.variants.map(
+    (variant) =>
+      normalizeJsonForDisplay(
+        (variant.examples[0]?.definition ?? {}) as JsonObject,
+      ) as JsonValue,
+  );
+
+  const mismatchPaths =
+    difference.variants.length > 1
+      ? collectMismatchPaths(normalizedVariantDefinitions)
+      : new Set<string>();
+
+  const variantDifferenceDetails =
+    difference.variants.length > 1
+      ? analyzeVariantDifferences(normalizedVariantDefinitions)
+      : difference.variants.map(() => ({
+          missingProperties: [] as VariantPathDetail[],
+          unequalValues: [] as VariantPathDetail[],
+        }));
+
+  const missingPropertyCount = variantDifferenceDetails.reduce(
+    (total, item) => total + item.missingProperties.length,
+    0,
+  );
+  const unequalValueCount = variantDifferenceDetails.reduce(
+    (total, item) => total + item.unequalValues.length,
+    0,
+  );
+
+  return {
+    normalizedVariantDefinitions,
+    mismatchPaths,
+    variantDifferenceDetails,
+    missingPropertyCount,
+    unequalValueCount,
+    isMissingOnlyDefinitionDifference:
+      difference.variants.length > 1 &&
+      missingPropertyCount > 0 &&
+      unequalValueCount === 0,
+  };
+};
+
+const mergeJsonValuesByUnion = (values: JsonValue[]): JsonValue => {
+  if (values.length === 0) {
+    return null;
+  }
+
+  if (values.every((value) => isJsonObject(value))) {
+    const objectValues = values as JsonObject[];
+    const mergedObject: JsonObject = {};
+    const keys = new Set<string>();
+
+    for (const objectValue of objectValues) {
+      Object.keys(objectValue).forEach((key) => keys.add(key));
+    }
+
+    for (const key of Array.from(keys).sort((a, b) => a.localeCompare(b))) {
+      const childValues = objectValues
+        .filter((objectValue) => key in objectValue)
+        .map((objectValue) => objectValue[key] as JsonValue);
+
+      mergedObject[key] = mergeJsonValuesByUnion(childValues);
+    }
+
+    return mergedObject;
+  }
+
+  if (values.every((value) => Array.isArray(value))) {
+    const arrayValues = values as JsonValue[][];
+    const arrayMatchKey = findArrayMatchKey(arrayValues);
+
+    if (arrayMatchKey) {
+      const keyValues = new Set<string>();
+
+      for (const arrayValue of arrayValues) {
+        for (const item of arrayValue) {
+          if (isJsonObject(item) && typeof item[arrayMatchKey] === "string") {
+            keyValues.add(item[arrayMatchKey] as string);
+          }
+        }
+      }
+
+      return Array.from(keyValues)
+        .sort((a, b) => a.localeCompare(b))
+        .map((keyValue) => {
+          const itemValues = arrayValues
+            .map((arrayValue) => getArrayItemByKey(arrayValue, arrayMatchKey, keyValue))
+            .filter(
+              (value): value is JsonValue => value !== MISSING_JSON_VALUE,
+            );
+
+          return mergeJsonValuesByUnion(itemValues);
+        });
+    }
+
+    const uniqueItems = new Map<string, JsonValue>();
+
+    for (const arrayValue of arrayValues) {
+      for (const item of arrayValue) {
+        const canonical = JSON.stringify(item);
+        if (!uniqueItems.has(canonical)) {
+          uniqueItems.set(canonical, item);
+        }
+      }
+    }
+
+    return Array.from(uniqueItems.entries())
+      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
+      .map(([, item]) => item);
+  }
+
+  return values[0];
+};
+
+const buildUnionMergedDefinition = (
+  difference: UdtDifference,
+): JsonObject | null => {
+  const definitions = difference.variants.flatMap((variant) =>
+    variant.examples.map((example) => example.definition as JsonValue),
+  );
+
+  if (definitions.length === 0) {
+    return null;
+  }
+
+  const merged = mergeJsonValuesByUnion(definitions);
+  if (!isJsonObject(merged)) {
+    return null;
+  }
+
+  return merged as JsonObject;
+};
+
 const collectMismatchPaths = (values: JsonValue[]): Set<string> => {
   const mismatchPaths = new Set<string>();
 
@@ -477,8 +623,20 @@ const renderJsonWithHighlights = (
 
 const formatDifferencePathLabel = (path: string): string => path || "(root)";
 
-const formatVariantReferenceList = (variantIndexes: number[]): string =>
-  variantIndexes.map((variantIndex) => `${variantIndex + 1}`).join(", ");
+const formatVariantReferenceList = (
+  variantIndexes: number[],
+  variants: { files: string[] }[],
+): string => {
+  const labels = variantIndexes
+    .map((variantIndex) => variants[variantIndex]?.files.join(", "))
+    .filter((label): label is string => Boolean(label));
+
+  if (labels.length > 0) {
+    return labels.join(" | ");
+  }
+
+  return variantIndexes.map((variantIndex) => `${variantIndex + 1}`).join(", ");
+};
 
 const pluralize = (
   count: number,
@@ -523,6 +681,12 @@ const SyncUdtDefinitions: React.FC = () => {
     new Set(),
   );
   const [copiedSnippetId, setCopiedSnippetId] = useState<string | null>(null);
+  const [showDifferenceGlossary, setShowDifferenceGlossary] =
+    useState<boolean>(false);
+  const [showDebugTools, setShowDebugTools] = useState<boolean>(false);
+  const [unionMergeSelections, setUnionMergeSelections] = useState<Set<string>>(
+    new Set(),
+  );
 
   const resetOutput = () => {
     setSyncResult(null);
@@ -530,6 +694,8 @@ const SyncUdtDefinitions: React.FC = () => {
     setErrorMessage("");
     setExpandedDifferences(new Set());
     setCopiedSnippetId(null);
+    setUnionMergeSelections(new Set());
+    setShowDifferenceGlossary(false);
   };
 
   const expandDifference = (differenceName: string) => {
@@ -558,19 +724,126 @@ const SyncUdtDefinitions: React.FC = () => {
     setExpandedDifferences(new Set());
   };
 
-  const formatDifferenceSummary = (difference: UdtDifference): string => {
+  const differenceInspectionByName = useMemo(() => {
+    const map = new Map<string, DifferenceInspection>();
+
+    if (!syncResult) {
+      return map;
+    }
+
+    for (const difference of syncResult.differences) {
+      map.set(difference.name, inspectDifference(difference));
+    }
+
+    return map;
+  }, [syncResult]);
+
+  const toggleUnionMergeSelection = (
+    differenceName: string,
+    enabled: boolean,
+  ) => {
+    setUnionMergeSelections((previous) => {
+      const updated = new Set(previous);
+      if (enabled) {
+        updated.add(differenceName);
+      } else {
+        updated.delete(differenceName);
+      }
+      return updated;
+    });
+  };
+
+  const mergedFileForDownload = useMemo(() => {
+    if (!syncResult) {
+      return null;
+    }
+
+    const mergedByName = new Map<string, JsonObject>();
+
+    for (const definition of syncResult.mergedUdts) {
+      if (typeof definition.name === "string" && definition.name.length > 0) {
+        mergedByName.set(definition.name, deepCloneJsonObject(definition));
+      }
+    }
+
+    for (const difference of syncResult.differences) {
+      if (!unionMergeSelections.has(difference.name)) {
+        continue;
+      }
+
+      const inspection = differenceInspectionByName.get(difference.name);
+      if (!inspection?.isMissingOnlyDefinitionDifference) {
+        continue;
+      }
+
+      const unionDefinition = buildUnionMergedDefinition(difference);
+      if (!unionDefinition || typeof unionDefinition.name !== "string") {
+        continue;
+      }
+
+      mergedByName.set(unionDefinition.name, deepCloneJsonObject(unionDefinition));
+    }
+
+    const mergedUdts = Array.from(mergedByName.entries())
+      .sort(([nameA], [nameB]) => nameA.localeCompare(nameB))
+      .map(([, definition]) => definition);
+
+    return {
+      name: "merged_udt_definitions",
+      tagType: "Folder",
+      tags: mergedUdts,
+    } as JsonObject;
+  }, [syncResult, unionMergeSelections, differenceInspectionByName]);
+
+  const appliedUnionMergeCount = useMemo(() => {
+    if (!syncResult) {
+      return 0;
+    }
+
+    return syncResult.differences.filter((difference) => {
+      if (!unionMergeSelections.has(difference.name)) {
+        return false;
+      }
+
+      const inspection = differenceInspectionByName.get(difference.name);
+      return Boolean(inspection?.isMissingOnlyDefinitionDifference);
+    }).length;
+  }, [syncResult, unionMergeSelections, differenceInspectionByName]);
+
+  const formatDifferenceSummary = (
+    difference: UdtDifference,
+    inspection?: DifferenceInspection,
+  ): string => {
     const sections: string[] = [];
 
     if (difference.variants.length > 1) {
-      sections.push(
-        `definition mismatch across ${difference.variants
-          .map((variant) => variant.files.join(", "))
-          .join(" | ")}`,
-      );
+      const acrossFiles = difference.variants
+        .map((variant) => variant.files.join(", "))
+        .join(" | ");
+
+      if (inspection) {
+        if (inspection.unequalValueCount > 0 && inspection.missingPropertyCount > 0) {
+          sections.push(
+            `definition mismatch (missing properties + unequal values) across ${acrossFiles}`,
+          );
+        } else if (inspection.unequalValueCount > 0) {
+          sections.push(`definition mismatch (unequal values) across ${acrossFiles}`);
+        } else if (inspection.missingPropertyCount > 0) {
+          sections.push(
+            `definition mismatch (missing properties only) across ${acrossFiles}`,
+          );
+        } else {
+          sections.push(`definition mismatch across ${acrossFiles}`);
+        }
+      } else {
+        sections.push(`definition mismatch across ${acrossFiles}`);
+      }
     }
 
     if (difference.missingIn.length > 0) {
-      sections.push(`missing in ${difference.missingIn.join(", ")}`);
+      sections.push(
+        `missing in ${difference.missingIn.join(", ")}`,
+      );
     }
 
     return sections.join(" - ");
@@ -620,6 +893,8 @@ const SyncUdtDefinitions: React.FC = () => {
     setSyncResult(null);
     setExpandedDifferences(new Set());
     setCopiedSnippetId(null);
+    setUnionMergeSelections(new Set());
+    setShowDifferenceGlossary(false);
 
     const parsedFiles: ParsedUdtFile[] = [];
     for (const file of files) {
@@ -660,11 +935,11 @@ const SyncUdtDefinitions: React.FC = () => {
   };
 
   const handleDownloadMergedUdts = async () => {
-    if (!syncResult) {
+    if (!syncResult || !mergedFileForDownload) {
       return;
     }
 
-    const jsonContent = JSON.stringify(syncResult.mergedFile, null, 2);
+    const jsonContent = JSON.stringify(mergedFileForDownload, null, 2);
 
     if (window.native?.saveAs && window.native?.writeTextFile) {
       const { canceled, filePath } = await window.native.saveAs({
@@ -684,6 +959,111 @@ const SyncUdtDefinitions: React.FC = () => {
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = "merged_udt_definitions.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadUdtDebugData = async () => {
+    if (!syncResult) {
+      return;
+    }
+
+    const differencesDebug = syncResult.differences.map((difference) => {
+      const normalizedVariantDefinitions = difference.variants.map(
+        (variant) =>
+          normalizeJsonForDisplay(
+            (variant.examples[0]?.definition ?? {}) as JsonObject,
+          ) as JsonValue,
+      );
+
+      const mismatchPaths =
+        difference.variants.length > 1
+          ? Array.from(collectMismatchPaths(normalizedVariantDefinitions)).sort(
+              (a, b) => a.localeCompare(b),
+            )
+          : [];
+
+      const variantDifferenceDetails =
+        difference.variants.length > 1
+          ? analyzeVariantDifferences(normalizedVariantDefinitions)
+          : difference.variants.map(() => ({
+              missingProperties: [] as VariantPathDetail[],
+              unequalValues: [] as VariantPathDetail[],
+            }));
+
+      const variantCards = difference.variants.flatMap((variant, variantIndex) =>
+        variant.examples.map((example, exampleIndex) => {
+          const renderedSnippet = renderJsonWithHighlights(
+            example.definition,
+            new Set<string>(mismatchPaths),
+          );
+
+          return {
+            variantIndex,
+            exampleIndex,
+            fileName: example.fileName,
+            path: example.path,
+            variantFiles: variant.files,
+            jsonText: renderedSnippet.jsonText,
+            renderedLines: renderedSnippet.lines,
+          };
+        }),
+      );
+
+      return {
+        name: difference.name,
+        summary: formatDifferenceSummary(
+          difference,
+          differenceInspectionByName.get(difference.name),
+        ),
+        missingIn: difference.missingIn,
+        variants: difference.variants,
+        normalizedVariantDefinitions,
+        mismatchPaths,
+        variantDifferenceDetails,
+        variantCards,
+      };
+    });
+
+    const debugPayload = {
+      generatedAt: new Date().toISOString(),
+      uploadedFiles: files.map((file) => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      })),
+      syncLog,
+      expandedDifferences: Array.from(expandedDifferences.values()),
+      syncResult,
+      differencesDebug,
+    };
+
+    const jsonContent = JSON.stringify(debugPayload, null, 2);
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .replace("T", "_")
+      .replace("Z", "");
+    const defaultFileName = `udt_sync_debug_${timestamp}.json`;
+
+    if (window.native?.saveAs && window.native?.writeTextFile) {
+      const { canceled, filePath } = await window.native.saveAs({
+        title: "Save UDT sync debug data",
+        defaultPath: defaultFileName,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+
+      if (!canceled && filePath) {
+        await window.native.writeTextFile(filePath, jsonContent);
+      }
+      return;
+    }
+
+    const blob = new Blob([jsonContent], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = defaultFileName;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -759,12 +1139,49 @@ const SyncUdtDefinitions: React.FC = () => {
         )}
       </div>
 
+      <div className="d-flex justify-content-end mb-3">
+        <div className="form-check form-switch text-body-secondary opacity-75">
+          <input
+            className="form-check-input"
+            type="checkbox"
+            id="udt-debug-tools-toggle"
+            checked={showDebugTools}
+            onChange={(event) => setShowDebugTools(event.target.checked)}
+          />
+          <label
+            className="form-check-label small"
+            htmlFor="udt-debug-tools-toggle"
+            title="Enable temporary debugging actions for troubleshooting"
+          >
+            Show debug tools
+          </label>
+        </div>
+      </div>
+
       {errorMessage && <div className="alert alert-danger mt-3">{errorMessage}</div>}
 
       {syncResult && syncResult.differences.length > 0 && (
         <div className="alert alert-warning mt-3">
           <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
-            <h5 className="mb-0">UDT Differences Detected</h5>
+            <div className="d-flex align-items-center gap-2">
+              <h5 className="mb-0">UDT Differences Detected</h5>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary rounded-circle"
+                style={{ width: "1.9rem", height: "1.9rem", padding: 0, minWidth: "1.9rem" }}
+                title="Show glossary for difference terms"
+                aria-label={
+                  showDifferenceGlossary
+                    ? "Hide difference glossary"
+                    : "Show difference glossary"
+                }
+                aria-expanded={showDifferenceGlossary}
+                onClick={() => setShowDifferenceGlossary((previous) => !previous)}
+              >
+                i
+              </button>
+            </div>
+
             {expandedDifferences.size > 0 && (
               <button
                 type="button"
@@ -777,9 +1194,40 @@ const SyncUdtDefinitions: React.FC = () => {
               </button>
             )}
           </div>
+
+          {showDifferenceGlossary && (
+            <div className="alert alert-secondary py-2 mb-3 small">
+              <div>
+                <strong>Difference:</strong> UDT has at least one issue across files
+                (missing in some files and/or definition mismatch).
+              </div>
+              <div>
+                <strong>Mismatch:</strong> same UDT name exists in multiple files,
+                but with different final definition content.
+              </div>
+              <div>
+                <strong>Missing:</strong> property/path exists in one or more compared
+                definitions but does not exist in another.
+              </div>
+              <div>
+                <strong>Unequal:</strong> same property/path exists in compared
+                definitions, but its final value differs.
+              </div>
+            </div>
+          )}
+
           <div className="list-group">
             {syncResult.differences.map((difference) => {
               const isExpanded = expandedDifferences.has(difference.name);
+              const inspection = differenceInspectionByName.get(difference.name);
+              const isUnionMergeEligible = Boolean(
+                inspection?.isMissingOnlyDefinitionDifference,
+              );
+              const isUnionMergeSelected = unionMergeSelections.has(difference.name);
+              const unionMergeToggleId = `union-merge-${difference.name.replace(
+                /[^a-zA-Z0-9_-]/g,
+                "_",
+              )}`;
 
               return (
                 <div
@@ -800,23 +1248,53 @@ const SyncUdtDefinitions: React.FC = () => {
                   >
                     <div className="pe-2">
                       <strong>{difference.name}</strong>
-                      {` - ${formatDifferenceSummary(difference)}`}
+                      {` - ${formatDifferenceSummary(difference, inspection)}`}
                     </div>
 
-                    {isExpanded && (
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-secondary flex-shrink-0 collapse-toggle-btn"
-                        title="Collapse this difference details"
-                        aria-label={`Collapse ${difference.name} details`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          collapseDifference(difference.name);
-                        }}
-                      >
-                        {"\u25B2"}
-                      </button>
-                    )}
+                    <div className="d-flex align-items-center gap-2 flex-shrink-0">
+                      {isUnionMergeEligible && (
+                        <div
+                          className="form-check form-switch mb-0 small"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                          title="Merge all missing properties from each variant for this UDT"
+                        >
+                          <input
+                            id={unionMergeToggleId}
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={isUnionMergeSelected}
+                            onChange={(event) =>
+                              toggleUnionMergeSelection(
+                                difference.name,
+                                event.target.checked,
+                              )
+                            }
+                          />
+                          <label
+                            className="form-check-label text-body-secondary"
+                            htmlFor={unionMergeToggleId}
+                          >
+                            Union merge
+                          </label>
+                        </div>
+                      )}
+
+                      {isExpanded && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-secondary flex-shrink-0 collapse-toggle-btn"
+                          title="Collapse this difference details"
+                          aria-label={`Collapse ${difference.name} details`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            collapseDifference(difference.name);
+                          }}
+                        >
+                          {"\u25B2"}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {isExpanded && (
@@ -833,216 +1311,223 @@ const SyncUdtDefinitions: React.FC = () => {
                         </div>
                       )}
 
+                      {isUnionMergeEligible && (
+                        <div className="small text-body-secondary mb-3">
+                          {isUnionMergeSelected
+                            ? "Union merge enabled for this UDT in final export."
+                            : "Enable \"Union merge\" to include all missing properties from these variants in final export."}
+                        </div>
+                      )}
+
                       {(() => {
-                        const normalizedVariantDefinitions = difference.variants.map(
-                          (variant) =>
-                            normalizeJsonForDisplay(
-                              (variant.examples[0]?.definition ?? {}) as JsonObject,
-                            ) as JsonValue,
-                        );
-
-                        const mismatchPaths =
-                          difference.variants.length > 1
-                            ? collectMismatchPaths(normalizedVariantDefinitions)
-                            : new Set<string>();
-
+                        const mismatchPaths = inspection?.mismatchPaths ?? new Set<string>();
                         const variantDifferenceDetails =
-                          difference.variants.length > 1
-                            ? analyzeVariantDifferences(
-                                normalizedVariantDefinitions,
-                              )
-                            : difference.variants.map(() => ({
-                                missingProperties: [] as VariantPathDetail[],
-                                unequalValues: [] as VariantPathDetail[],
-                              }));
+                          inspection?.variantDifferenceDetails ??
+                          difference.variants.map(() => ({
+                            missingProperties: [] as VariantPathDetail[],
+                            unequalValues: [] as VariantPathDetail[],
+                          }));
+
+                        const variantCards = difference.variants.flatMap(
+                          (variant, variantIndex) =>
+                            variant.examples.map((example) => ({
+                              variantIndex,
+                              files: variant.files,
+                              example,
+                            })),
+                        );
 
                         return (
                           <div className="row g-3">
-                            {difference.variants.map((variant, index) => (
-                              <div
-                                key={`${difference.name}-variant-${index}`}
-                                className="col-12 col-xl-6"
-                              >
-                                <div className="card h-100 border-secondary-subtle">
-                                  <div className="card-header bg-body-secondary text-body">
-                                    <div className="fw-semibold">Variant {index + 1}</div>
-                                    <div className="small">
-                                      Files: {variant.files.join(", ")}
-                                    </div>
-                                  </div>
-                                  <div className="card-body">
-                                    {variant.examples.map((example, exampleIndex) => {
-                                      const snippetId = `${difference.name}-${index}-${example.fileName}-${example.path}`;
-                                      const renderedSnippet = renderJsonWithHighlights(
-                                        example.definition,
-                                        mismatchPaths,
-                                      );
-                                      const variantDetails =
-                                        variantDifferenceDetails[index];
-                                      const missingRows =
-                                        variantDetails.missingProperties.slice(
-                                          0,
-                                          MAX_VARIANT_DETAIL_ROWS,
-                                        );
-                                      const unequalRows =
-                                        variantDetails.unequalValues.slice(
-                                          0,
-                                          MAX_VARIANT_DETAIL_ROWS,
-                                        );
+                            {variantCards.map((variantCard, displayIndex) => {
+                              const snippetId = `${difference.name}-${variantCard.variantIndex}-${variantCard.example.fileName}-${variantCard.example.path}-${displayIndex}`;
+                              const renderedSnippet = renderJsonWithHighlights(
+                                variantCard.example.definition,
+                                mismatchPaths,
+                              );
+                              const variantDetails =
+                                variantDifferenceDetails[variantCard.variantIndex];
+                              const missingRows = variantDetails.missingProperties.slice(
+                                0,
+                                MAX_VARIANT_DETAIL_ROWS,
+                              );
+                              const unequalRows = variantDetails.unequalValues.slice(
+                                0,
+                                MAX_VARIANT_DETAIL_ROWS,
+                              );
+                              const matchingFiles = variantCard.files.filter(
+                                (fileName) =>
+                                  fileName !== variantCard.example.fileName,
+                              );
 
-                                      return (
-                                        <div key={snippetId} className="mb-3">
-                                          <div className="d-flex justify-content-between align-items-center gap-2 mb-1">
-                                            <div className="small text-body-secondary text-break">
-                                              {example.fileName}: {example.path}
-                                            </div>
-                                            <button
-                                              type="button"
-                                              className="btn btn-sm btn-outline-info flex-shrink-0"
-                                              onClick={() =>
-                                                handleCopySnippet(
-                                                  snippetId,
-                                                  renderedSnippet.jsonText,
-                                                )
-                                              }
-                                            >
-                                              {copiedSnippetId === snippetId
-                                                ? "Copied"
-                                                : "Copy"}
-                                            </button>
+                              return (
+                                <div
+                                  key={`${difference.name}-variant-card-${snippetId}`}
+                                  className="col-12 col-xl-6"
+                                >
+                                  <div className="card h-100 border-secondary-subtle">
+                                    <div className="card-header bg-body-secondary text-body">
+                                      <div className="fw-semibold">
+                                        Variant {displayIndex + 1}
+                                      </div>
+                                      <div className="small">
+                                        File: {variantCard.example.fileName}
+                                      </div>
+                                      {matchingFiles.length > 0 && (
+                                        <div className="small text-body-secondary">
+                                          Same definition as:{" "}
+                                          {matchingFiles.join(", ")}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="card-body">
+                                      <div className="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                        <div className="small text-body-secondary text-break">
+                                          {variantCard.example.fileName}:{" "}
+                                          {variantCard.example.path}
+                                        </div>
+                                        <button
+                                          type="button"
+                                          className="btn btn-sm btn-outline-info flex-shrink-0"
+                                          onClick={() =>
+                                            handleCopySnippet(
+                                              snippetId,
+                                              renderedSnippet.jsonText,
+                                            )
+                                          }
+                                        >
+                                          {copiedSnippetId === snippetId
+                                            ? "Copied"
+                                            : "Copy"}
+                                        </button>
+                                      </div>
+
+                                      <pre
+                                        className="bg-body-secondary text-body p-2 border rounded mb-0"
+                                        style={{
+                                          maxHeight: "320px",
+                                          overflow: "auto",
+                                          fontSize: "0.8rem",
+                                        }}
+                                      >
+                                        {renderedSnippet.lines.map((line, lineIndex) => (
+                                          <span
+                                            key={`${snippetId}-line-${lineIndex}`}
+                                            className="d-block"
+                                            style={
+                                              line.changed
+                                                ? {
+                                                    backgroundColor:
+                                                      "rgba(255, 193, 7, 0.22)",
+                                                    color: "#fff3cd",
+                                                  }
+                                                : undefined
+                                            }
+                                          >
+                                            {line.text}
+                                          </span>
+                                        ))}
+                                      </pre>
+
+                                      {difference.variants.length > 1 && (
+                                        <div className="mt-2 p-2 rounded border border-secondary-subtle small bg-body-tertiary">
+                                          <div className="fw-semibold mb-1">
+                                            {variantDetails.missingProperties.length}{" "}
+                                            {pluralize(
+                                              variantDetails.missingProperties
+                                                .length,
+                                              "missing property",
+                                              "missing properties",
+                                            )}
+                                            , {variantDetails.unequalValues.length}{" "}
+                                            {pluralize(
+                                              variantDetails.unequalValues.length,
+                                              "unequal value",
+                                              "unequal values",
+                                            )}
                                           </div>
 
-                                          <pre
-                                            className="bg-body-secondary text-body p-2 border rounded mb-0"
-                                            style={{
-                                              maxHeight: "320px",
-                                              overflow: "auto",
-                                              fontSize: "0.8rem",
-                                            }}
-                                          >
-                                            {renderedSnippet.lines.map((line, lineIndex) => (
-                                              <span
-                                                key={`${snippetId}-line-${lineIndex}`}
-                                                className="d-block"
-                                                style={
-                                                  line.changed
-                                                    ? {
-                                                        backgroundColor:
-                                                          "rgba(255, 193, 7, 0.22)",
-                                                        color: "#fff3cd",
-                                                      }
-                                                    : undefined
-                                                }
-                                              >
-                                                {line.text}
-                                              </span>
-                                            ))}
-                                          </pre>
-
-                                          {exampleIndex === 0 &&
-                                            difference.variants.length > 1 && (
-                                              <div className="mt-2 p-2 rounded border border-secondary-subtle small bg-body-tertiary">
-                                                <div className="fw-semibold mb-1">
-                                                  {variantDetails.missingProperties.length}{" "}
-                                                  {pluralize(
-                                                    variantDetails
-                                                      .missingProperties.length,
-                                                    "missing property",
-                                                    "missing properties",
-                                                  )}
-                                                  ,{" "}
-                                                  {variantDetails.unequalValues.length}{" "}
-                                                  {pluralize(
-                                                    variantDetails.unequalValues
-                                                      .length,
-                                                    "unequal value",
-                                                    "unequal values",
-                                                  )}
-                                                </div>
-
-                                                {missingRows.length > 0 && (
-                                                  <div className="mb-2">
-                                                    <div className="text-warning-emphasis fw-semibold">
-                                                      Missing on this variant
-                                                    </div>
-                                                    <ul className="mb-1 ps-3">
-                                                      {missingRows.map((row) => (
-                                                        <li
-                                                          key={`${snippetId}-missing-${row.path}`}
-                                                        >
-                                                          <code>
-                                                            {formatDifferencePathLabel(
-                                                              row.path,
-                                                            )}
-                                                          </code>{" "}
-                                                          exists on{" "}
-                                                          {formatVariantReferenceList(
-                                                            row.otherVariantIndexes,
-                                                          )}{" "}
-                                                          but not this one
-                                                        </li>
-                                                      ))}
-                                                    </ul>
-                                                    {variantDetails
-                                                      .missingProperties.length >
-                                                      MAX_VARIANT_DETAIL_ROWS && (
-                                                      <div className="text-body-secondary">
-                                                        +
-                                                        {variantDetails
-                                                          .missingProperties
-                                                          .length -
-                                                          MAX_VARIANT_DETAIL_ROWS}{" "}
-                                                        more missing properties
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                )}
-
-                                                {unequalRows.length > 0 && (
-                                                  <div>
-                                                    <div className="text-warning-emphasis fw-semibold">
-                                                      Unequal values on this
-                                                      variant
-                                                    </div>
-                                                    <ul className="mb-1 ps-3">
-                                                      {unequalRows.map((row) => (
-                                                        <li
-                                                          key={`${snippetId}-unequal-${row.path}`}
-                                                        >
-                                                          <code>
-                                                            {formatDifferencePathLabel(
-                                                              row.path,
-                                                            )}
-                                                          </code>{" "}
-                                                          differs from variants{" "}
-                                                          {formatVariantReferenceList(
-                                                            row.otherVariantIndexes,
-                                                          )}
-                                                        </li>
-                                                      ))}
-                                                    </ul>
-                                                    {variantDetails.unequalValues
-                                                      .length >
-                                                      MAX_VARIANT_DETAIL_ROWS && (
-                                                      <div className="text-body-secondary">
-                                                        +
-                                                        {variantDetails
-                                                          .unequalValues.length -
-                                                          MAX_VARIANT_DETAIL_ROWS}{" "}
-                                                        more unequal values
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                )}
+                                          {missingRows.length > 0 && (
+                                            <div className="mb-2">
+                                              <div className="text-warning-emphasis fw-semibold">
+                                                Missing on this variant
                                               </div>
-                                            )}
+                                              <ul className="mb-1 ps-3">
+                                                {missingRows.map((row) => (
+                                                  <li
+                                                    key={`${snippetId}-missing-${row.path}`}
+                                                  >
+                                                    <code>
+                                                      {formatDifferencePathLabel(
+                                                        row.path,
+                                                      )}
+                                                    </code>{" "}
+                                                    exists on{" "}
+                                                    {formatVariantReferenceList(
+                                                      row.otherVariantIndexes,
+                                                      difference.variants,
+                                                    )}{" "}
+                                                    but not this one
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                              {variantDetails.missingProperties
+                                                .length >
+                                                MAX_VARIANT_DETAIL_ROWS && (
+                                                <div className="text-body-secondary">
+                                                  +
+                                                  {variantDetails
+                                                    .missingProperties.length -
+                                                    MAX_VARIANT_DETAIL_ROWS}{" "}
+                                                  more missing properties
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+
+                                          {unequalRows.length > 0 && (
+                                            <div>
+                                              <div className="text-warning-emphasis fw-semibold">
+                                                Unequal values on this variant
+                                              </div>
+                                              <ul className="mb-1 ps-3">
+                                                {unequalRows.map((row) => (
+                                                  <li
+                                                    key={`${snippetId}-unequal-${row.path}`}
+                                                  >
+                                                    <code>
+                                                      {formatDifferencePathLabel(
+                                                        row.path,
+                                                      )}
+                                                    </code>{" "}
+                                                    differs from variants{" "}
+                                                    {formatVariantReferenceList(
+                                                      row.otherVariantIndexes,
+                                                      difference.variants,
+                                                    )}
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                              {variantDetails.unequalValues
+                                                .length >
+                                                MAX_VARIANT_DETAIL_ROWS && (
+                                                <div className="text-body-secondary">
+                                                  +
+                                                  {variantDetails.unequalValues
+                                                    .length -
+                                                    MAX_VARIANT_DETAIL_ROWS}{" "}
+                                                  more unequal values
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
                                         </div>
-                                      );
-                                    })}
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         );
                       })()}
@@ -1052,6 +1537,17 @@ const SyncUdtDefinitions: React.FC = () => {
               );
             })}
           </div>
+          {showDebugTools && (
+            <div className="mt-3 d-flex justify-content-end">
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary"
+                onClick={handleDownloadUdtDebugData}
+              >
+                Download UDT Debug Data (Temporary)
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1062,8 +1558,20 @@ const SyncUdtDefinitions: React.FC = () => {
           </p>
           {syncResult.udtsWithDefinitionDifferences > 0 && (
             <p className="mb-3">
-              For mismatched UDT names, the merged output keeps the reference file
-              version ({syncResult.referenceFile}).
+              By default, mismatched UDT names keep the reference file version (
+              {syncResult.referenceFile}).
+              {appliedUnionMergeCount > 0 && (
+                <>
+                  {" "}
+                  Union merge is applied to {appliedUnionMergeCount}{" "}
+                  {pluralize(
+                    appliedUnionMergeCount,
+                    "missing-only mismatch",
+                    "missing-only mismatches",
+                  )}
+                  .
+                </>
+              )}
             </p>
           )}
           <button className="btn btn-success" onClick={handleDownloadMergedUdts}>
