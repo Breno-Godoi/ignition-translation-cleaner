@@ -30,7 +30,7 @@ Output:
 - `merged_translations_<language>.xml` (example: `merged_translations_en.xml`)
 - Conflict review + selection UI in the page
 
-### 2) Sync UDT Definitons
+### 2) Sync UDT Definitions
 Upload multiple Ignition UDT definition JSON exports and compare/merge them.
 
 How it works:
@@ -63,17 +63,33 @@ Merge rule:
 Output:
 - `merged_udt_definitions.json`
 
-### 3) Translation Cleaner (Work in Progress)
-Scans a project ZIP for translation key usage.
+### 3) Translation Cleaner
+Upload one Ignition translation XML and one or more Ignition project ZIP exports, then remove unused translation entries.
 
-Current behavior:
-- Upload one translation XML + one Ignition project ZIP.
-- Detects used keys in project text files.
-- Lets you review/export filtered translations.
+How it works:
+- Parses all terms from the uploaded translation XML.
+- Extracts all uploaded project ZIP files in memory.
+- Scans text-based project files for key usage (`.json`, `.xml`, `.py`, `.sql`, `.txt`, `.yaml`, `.yml`, `.csv`, `.js`, `.ts`, `.tsx`, `.jsx`).
+- Treats a key as `used` when the full key string exists in any scanned file.
+- Lists `unused` terms in a review table (`Unused Translation Entries`).
+- Exports a cleaned translation XML containing only used keys.
+
+Detection note:
+- This scan is literal string matching.
+- Keys assembled dynamically at runtime (for example via string concatenation in scripts/expressions) may not be detected and can appear as unused.
+
+Debug tools:
+- A `Show debug tools` toggle reveals temporary troubleshooting actions.
+- `Download Cleaner Debug Data (Temporary)` appears at the bottom of the analysis results box.
+
+Output:
+- If input filename ends with a locale suffix (`_en.xml`, `_es.xml`, `_pt.xml`, etc.), export is named with `_cleaned` before the locale suffix.
+  Example: `merged_translations_en.xml` -> `merged_translations_cleaned_en.xml`
+- Fallback for non-locale filenames: `<name>_cleaned.xml`
 
 ## Session Behavior
 
-For `Sync Translation` and `Sync UDT Definitons`:
+For `Sync Translation`, `Sync UDT Definitons`, and `Translation Cleaner`:
 - Uploaded files and analysis results persist when switching tabs.
 - State resets only when:
   - You change/remove files in that tab

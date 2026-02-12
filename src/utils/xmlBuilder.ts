@@ -2,8 +2,21 @@
 
 import type { TranslationTerm } from "./xmlParser";
 
-export function buildTranslationXML(terms: TranslationTerm[]): string {
-  const header = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">\n<properties>\n  <comment>Locale: en</comment>\n`;
+interface BuildTranslationXmlOptions {
+  locale?: string | null;
+  comment?: string | null;
+}
+
+export function buildTranslationXML(
+  terms: TranslationTerm[],
+  options?: BuildTranslationXmlOptions,
+): string {
+  const normalizedLocale = options?.locale?.trim();
+  const comment = options?.comment?.trim()
+    ? options.comment.trim()
+    : `Locale: ${normalizedLocale || "en"}`;
+
+  const header = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">\n<properties>\n  <comment>${escapeXml(comment)}</comment>\n`;
   const entries = terms
     .map((term) => `  <entry key="${term.key}">${escapeXml(term.text)}</entry>`)
     .join("\n");
