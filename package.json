@@ -18,9 +18,18 @@
   "build": {
     "appId": "com.ignition.translationcleaner",
     "productName": "Ignition Syncing Tool",
+    "compression": "maximum",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "!dist/win-unpacked{,/**/*}",
+      "!dist/*.exe",
+      "!dist/builder-debug.yml",
+      "!**/*.map",
+      "!**/*.md"
     ],
     "asar": true,
     "win": {

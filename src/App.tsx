@@ -1,16 +1,29 @@
 // src/App.tsx
-import { useState, useEffect } from "react";
-import SyncTranslation from "./components/SyncTranslation";
-import SyncUdtDefinitions from "./components/SyncUdtDefinitions";
-import TranslationCleaner from "./components/TranslationCleaner";
+import { Suspense, lazy, useEffect, useState } from "react";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "./App.css";
 
+const SyncTranslation = lazy(() => import("./components/SyncTranslation"));
+const SyncUdtDefinitions = lazy(() => import("./components/SyncUdtDefinitions"));
+const TranslationCleaner = lazy(() => import("./components/TranslationCleaner"));
+
+type TabKey = "sync" | "cleaner" | "udt";
+
 function App() {
-  const [activeTab, setActiveTab] = useState<"sync" | "cleaner" | "udt">(
-    "sync",
-  );
+  const [activeTab, setActiveTab] = useState<TabKey>("sync");
+  const [loadedTabs, setLoadedTabs] = useState<Record<TabKey, boolean>>({
+    sync: true,
+    cleaner: false,
+    udt: false,
+  });
   const [theme, setTheme] = useState<"light" | "dark">("dark");
+
+  const handleTabChange = (tab: TabKey) => {
+    setActiveTab(tab);
+    setLoadedTabs((prev) =>
+      prev[tab] ? prev : { ...prev, [tab]: true },
+    );
+  };
 
   useEffect(() => {
     document.body.setAttribute("data-bs-theme", theme);
@@ -42,7 +55,7 @@ function App() {
             <li className="nav-item">
               <button
                 className={`nav-link ${activeTab === "sync" ? "active" : ""}`}
-                onClick={() => setActiveTab("sync")}
+                onClick={() => handleTabChange("sync")}
               >
                 Sync Translation
               </button>
@@ -52,7 +65,7 @@ function App() {
                 className={`nav-link ${
                   activeTab === "cleaner" ? "active" : ""
                 }`}
-                onClick={() => setActiveTab("cleaner")}
+                onClick={() => handleTabChange("cleaner")}
               >
                 Translation Cleaner
               </button>
@@ -60,33 +73,47 @@ function App() {
             <li className="nav-item">
               <button
                 className={`nav-link ${activeTab === "udt" ? "active" : ""}`}
-                onClick={() => setActiveTab("udt")}
+                onClick={() => handleTabChange("udt")}
               >
                 Sync UDT Definitons
               </button>
             </li>
           </ul>
 
-          <div
-            className={activeTab === "sync" ? "" : "d-none"}
-            aria-hidden={activeTab !== "sync"}
+          <Suspense
+            fallback={
+              <div className="alert alert-secondary py-2">
+                Loading tab...
+              </div>
+            }
           >
-            <SyncTranslation />
-          </div>
+            {loadedTabs.sync && (
+              <div
+                className={activeTab === "sync" ? "" : "d-none"}
+                aria-hidden={activeTab !== "sync"}
+              >
+                <SyncTranslation />
+              </div>
+            )}
 
-          <div
-            className={activeTab === "udt" ? "" : "d-none"}
-            aria-hidden={activeTab !== "udt"}
-          >
-            <SyncUdtDefinitions />
-          </div>
+            {loadedTabs.udt && (
+              <div
+                className={activeTab === "udt" ? "" : "d-none"}
+                aria-hidden={activeTab !== "udt"}
+              >
+                <SyncUdtDefinitions />
+              </div>
+            )}
 
-          <div
-            className={activeTab === "cleaner" ? "" : "d-none"}
-            aria-hidden={activeTab !== "cleaner"}
-          >
-            <TranslationCleaner />
-          </div>
+            {loadedTabs.cleaner && (
+              <div
+                className={activeTab === "cleaner" ? "" : "d-none"}
+                aria-hidden={activeTab !== "cleaner"}
+              >
+                <TranslationCleaner />
+              </div>
+            )}
+          </Suspense>
         </div>
       </div>
     </div>

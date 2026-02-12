@@ -151,8 +151,8 @@ npm run build:app
 This builds web assets and packages Electron using `electron-builder`.
 
 Windows artifacts (from current config):
-- Installer (NSIS): `dist/Ignition Syncing Tool Setup <version>.exe`
-- Portable executable: `dist/Ignition Syncing Tool <version>.exe`
+- Installer (NSIS): `release/Ignition Syncing Tool Setup <version>.exe`
+- Portable executable: `release/Ignition Syncing Tool <version>.exe`
 
 Build only the Windows portable executable:
 ```bash
