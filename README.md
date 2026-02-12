@@ -151,8 +151,13 @@ npm run build:app
 This builds web assets and packages Electron using `electron-builder`.
 
 Windows artifacts (from current config):
-- Installer (NSIS): `dist/Ignition Translation Cleaner Setup <version>.exe`
-- Portable executable: `dist/Ignition Translation Cleaner <version>.exe`
+- Installer (NSIS): `dist/Ignition Syncing Tool Setup <version>.exe`
+- Portable executable: `dist/Ignition Syncing Tool <version>.exe`
+
+Build only the Windows portable executable:
+```bash
+npm run build:portable
+```
 
 ## Scripts Reference
 
@@ -162,6 +167,7 @@ Windows artifacts (from current config):
 - `npm run build` -> Type-check + web production build
 - `npm run build:web` -> Web production build only
 - `npm run build:app` -> Web build + Electron packaging
+- `npm run build:portable` -> Web build + Windows portable executable only
 - `npm run preview` -> Serve built web assets locally
 - `npm run lint` -> ESLint
 

@@ -1,7 +1,7 @@
 {
   "name": "ignition-translation-cleaner",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -9,26 +9,36 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-
     "dev:electron": "wait-on http://localhost:5173 && electron .",
     "dev:app": "concurrently \"npm:dev\" \"npm:dev:electron\"",
-
     "build:web": "vite build",
-    "build:app": "npm run build:web && electron-builder"
+    "build:app": "npm run build:web && electron-builder",
+    "build:portable": "npm run build:web && electron-builder --win portable"
   },
   "build": {
     "appId": "com.ignition.translationcleaner",
-    "productName": "Ignition Translation Cleaner",
+    "productName": "Ignition Syncing Tool",
     "files": [
       "dist/**/*",
       "electron/**/*"
     ],
     "asar": true,
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
-    "mac": { "target": ["dmg"] },
-    "linux": { "target": ["AppImage"] }
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
   },
   "dependencies": {
     "bootstrap": "^5.3.6",
