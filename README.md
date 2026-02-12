@@ -1,112 +1,175 @@
-Ignition Translation Cleaner
-A React + TypeScript web application for managing and cleaning translation XML files.
+# Ignition Syncing Tool
 
-Features
-1. Sync Translation
-Upload up to translation XML files in Ignition's standard format.
+React + TypeScript application for syncing and reviewing Ignition exports.
 
-Merge translation keys and values into a single unified XML file.
+The project runs in two modes:
+- Web app (Vite)
+- Desktop app (Electron wrapper around the same web UI)
 
-Detect conflicting translations (different values for the same key).
+## What This Tool Does
 
-Download merged XML file:
+### 1) Sync Translation
+Upload multiple Ignition translation XML files and merge them.
 
-Includes all unique keys with consistent values.
+How it works:
+- Parses all uploaded XML translation terms.
+- Groups terms by key.
+- Keeps keys that have one unique value across files.
+- Flags keys with conflicting values as conflicts.
+- Excludes conflicting keys from merged output.
 
-Excludes conflicting keys but shows them in the UI for manual review.
+Output:
+- `merged_translations.xml`
+- Conflict list in the UI
 
-Workflow
-Upload XML files.
+### 2) Sync UDT Definitons
+Upload multiple Ignition UDT definition JSON exports and compare/merge them.
 
-Review conflicts flagged in the UI.
+How it works:
+- Recursively finds all `tagType: "UdtType"` definitions from each JSON.
+- Compares definitions with order-insensitive matching for object keys/arrays.
+- Detects:
+  - Missing definitions per file
+  - Definition mismatches for same UDT name
+- Shows expandable differences with:
+  - Highlighted JSON sections
+  - Variant-level missing/unequal summaries
+  - Copy JSON buttons
+  - Collapse single / Collapse all controls
 
-Download the merged translation file.
+Merge rule:
+- Uses the first uploaded file as reference.
+- For UDT names that exist in the reference file, the merged output keeps that reference definition.
+- If a UDT name is missing in the reference file, it keeps the first occurrence by upload order.
+- Produces a merged JSON with unique UDT names.
 
-XML Format Example:
+Output:
+- `merged_udt_definitions.json`
 
-```
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
-<properties>
-  <comment>Locale: en</comment>
-  <entry key="#disable_picker_tool_d">disable picker tool d</entry>
-  <entry key="#shift">shift</entry>
-  <entry key="#create">create</entry>
-</properties>
-```
+### 3) Translation Cleaner (Work in Progress)
+Scans a project ZIP for translation key usage.
 
-2. Translation Cleaner (Work in Progress)
-This feature helps developers find unused or missing translations within an Ignition project export:
+Current behavior:
+- Upload one translation XML + one Ignition project ZIP.
+- Detects used keys in project text files.
+- Lets you review/export filtered translations.
 
-Upload an Ignition project export.
+## Session Behavior
 
-Upload one translation XML file.
+For `Sync Translation` and `Sync UDT Definitons`:
+- Uploaded files and analysis results persist when switching tabs.
+- State resets only when:
+  - You change/remove files in that tab
+  - You reload/restart the application
 
-The application scans through project files (views, scripts, tags, etc.) for all translation keys present in the XML file.
+## Tech Stack
 
-Reports unused keys (present in XML but not referenced in the project).
+- React 19
+- TypeScript 5
+- Vite 6
+- Electron 38
+- Bootstrap 5
+- `fast-xml-parser` 5.3.4
+- `jszip` 3
 
-Reports missing translations (keys referenced in the project but not present in the XML).
+## Requirements
 
-Planned Output:
-A filtered XML with only used keys.
+- Node.js 20+ (LTS recommended)
+- npm 10+ recommended
+- Windows for `.exe` packaging
 
-A list of missing keys for manual translation.
+## Getting Started (Local Web App)
 
-Tech Stack
-React + TypeScript (UI)
-
-Vite (build tool)
-
-Bootstrap (styling)
-
-fast-xml-parser (XML parsing)
-
-Development Setup
-
-# Install dependencies
+```bash
 npm install
-
-# Run development server
 npm run dev
+```
 
-# Build production version
+Open the URL shown by Vite (default: `http://localhost:5173`).
+
+## Run as Electron App (Local Dev)
+
+```bash
+npm install
+npm run dev:app
+```
+
+What this runs:
+- `npm run dev` (Vite dev server)
+- `npm run dev:electron` (launches Electron after server is ready)
+
+## Build Commands
+
+### Web build
+```bash
 npm run build
+```
 
-# Preview production build
+Preview web production build:
+```bash
 npm run preview
+```
 
----
-
-Build: Portable Windows .exe
-
-This produces two Windows outputs:
-
-NSIS installer: dist/Ignition Translation Cleaner Setup <version>.exe
-
-Portable EXE (no install): dist/Ignition Translation Cleaner <version>.exe
-
-Steps
-Build web assets and package the Electron app
-
+### Electron distributables
+```bash
 npm run build:app
+```
 
-Where’s my .exe?
+This builds web assets and packages Electron using `electron-builder`.
 
-Check the dist/ folder at the project root.
+Windows artifacts (from current config):
+- Installer (NSIS): `dist/Ignition Translation Cleaner Setup <version>.exe`
+- Portable executable: `dist/Ignition Translation Cleaner <version>.exe`
 
-Code signing / SmartScreen
+## Scripts Reference
 
-If you don’t use a code-signing certificate, Windows SmartScreen may warn on first run.
-Click “More info” → “Run anyway.” For distribution, consider signing the app.
+- `npm run dev` -> Start web dev server (Vite)
+- `npm run dev:electron` -> Start Electron against existing dev server
+- `npm run dev:app` -> Run Vite + Electron together
+- `npm run build` -> Type-check + web production build
+- `npm run build:web` -> Web production build only
+- `npm run build:app` -> Web build + Electron packaging
+- `npm run preview` -> Serve built web assets locally
+- `npm run lint` -> ESLint
 
----
+## Suggested Development Workflow
 
-Future Enhancements
-Manual resolution of conflicts (choose which value to keep).
+Before pushing changes:
 
-Export conflict report as CSV or JSON.
+```bash
+npm run lint
+npm run build
+```
 
-Full implementation of Translation Cleaner (with project-wide scanning).
+Recommended:
+- Keep `package-lock.json` committed.
+- Keep large local sample exports outside version control.
+- Add new parser/comparison logic with deterministic rules and tests where possible.
 
-Multi-language translation merging and validation.
+## Project Structure
+
+```text
+electron/                  Electron main + preload
+src/
+  components/              UI pages/components
+  utils/                   XML/JSON parsing, merge, comparison logic
+public/                    Static assets
+```
+
+## Troubleshooting
+
+### Electron does not open in dev mode
+- Confirm `npm run dev` works first.
+- Then run `npm run dev:app` (it waits for `http://localhost:5173`).
+
+### SmartScreen warning on Windows executable
+- Unsigned executables can trigger SmartScreen.
+- For distribution, use code signing.
+
+### I switched tabs and lost data
+- Data persists across tabs in this version.
+- If data is lost, check if the page/app was reloaded.
+
+## License
+
+No license file is currently included in this repository.

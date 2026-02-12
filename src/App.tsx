@@ -102,8 +102,19 @@ function App() {
             </li>
           </ul>
 
-          {activeTab === "sync" && <SyncTranslation />}
-          {activeTab === "udt" && <SyncUdtDefinitions />}
+          <div
+            className={activeTab === "sync" ? "" : "d-none"}
+            aria-hidden={activeTab !== "sync"}
+          >
+            <SyncTranslation />
+          </div>
+
+          <div
+            className={activeTab === "udt" ? "" : "d-none"}
+            aria-hidden={activeTab !== "udt"}
+          >
+            <SyncUdtDefinitions />
+          </div>
 
           {activeTab === "cleaner" && (
             <>

@@ -71,6 +71,20 @@ button {
   min-width: 200px;
 }
 
+button.collapse-toggle-btn {
+  min-width: 2.25rem !important;
+  width: 2.25rem;
+  padding: 0.2rem 0.35rem;
+  line-height: 1;
+}
+
+button.collapse-all-btn {
+  min-width: auto !important;
+  width: auto;
+  padding: 0.25rem 0.65rem;
+  line-height: 1.1;
+}
+
 /* Alerts */
 .alert {
   border-radius: 0.4rem;

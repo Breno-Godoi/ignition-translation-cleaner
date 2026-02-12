@@ -554,6 +554,10 @@ const SyncUdtDefinitions: React.FC = () => {
     });
   };
 
+  const collapseAllDifferences = () => {
+    setExpandedDifferences(new Set());
+  };
+
   const formatDifferenceSummary = (difference: UdtDifference): string => {
     const sections: string[] = [];
 
@@ -759,7 +763,20 @@ const SyncUdtDefinitions: React.FC = () => {
 
       {syncResult && syncResult.differences.length > 0 && (
         <div className="alert alert-warning mt-3">
-          <h5>UDT Differences Detected</h5>
+          <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
+            <h5 className="mb-0">UDT Differences Detected</h5>
+            {expandedDifferences.size > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary collapse-all-btn"
+                title="Collapse all expanded differences"
+                aria-label="Collapse all expanded differences"
+                onClick={collapseAllDifferences}
+              >
+                Collapse All
+              </button>
+            )}
+          </div>
           <div className="list-group">
             {syncResult.differences.map((difference) => {
               const isExpanded = expandedDifferences.has(difference.name);
@@ -789,7 +806,8 @@ const SyncUdtDefinitions: React.FC = () => {
                     {isExpanded && (
                       <button
                         type="button"
-                        className="btn btn-sm btn-outline-secondary flex-shrink-0"
+                        className="btn btn-sm btn-outline-secondary flex-shrink-0 collapse-toggle-btn"
+                        title="Collapse this difference details"
                         aria-label={`Collapse ${difference.name} details`}
                         onClick={(event) => {
                           event.stopPropagation();
