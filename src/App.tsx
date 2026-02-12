@@ -4,6 +4,7 @@ import FileUpload from "./components/FileUpload";
 import TermReviewTable from "./components/TermReviewTable";
 import ExportButton from "./components/ExportButton";
 import SyncTranslation from "./components/SyncTranslation";
+import SyncUdtDefinitions from "./components/SyncUdtDefinitions";
 import { parseTranslationXML } from "./utils/xmlParser";
 import type { TranslationTerm } from "./utils/xmlParser";
 import { extractTextFilesFromZip, detectUsedKeys } from "./utils/zipScanner";
@@ -11,8 +12,10 @@ import "bootstrap/dist/css/bootstrap.min.css";
 import "./App.css";
 
 function App() {
-  const [activeTab, setActiveTab] = useState<"sync" | "cleaner">("sync");
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [activeTab, setActiveTab] = useState<"sync" | "cleaner" | "udt">(
+    "sync",
+  );
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
 
   // States for Translation Cleaner
   const [terms, setTerms] = useState<TranslationTerm[]>([]);
@@ -54,7 +57,7 @@ function App() {
         <div className="col-lg-10 col-md-12">
 
           <div className="position-relative mb-4">
-            <h2 className="m-0 w-100 text-center">Ignition Translation Tool</h2>
+            <h2 className="m-0 w-100 text-center">Ignition Syncing Tool</h2>
             <div className="form-check form-switch position-absolute top-0 end-0">
 
               <input
@@ -89,9 +92,18 @@ function App() {
                 Translation Cleaner
               </button>
             </li>
+            <li className="nav-item">
+              <button
+                className={`nav-link ${activeTab === "udt" ? "active" : ""}`}
+                onClick={() => setActiveTab("udt")}
+              >
+                Sync UDT Definitons
+              </button>
+            </li>
           </ul>
 
           {activeTab === "sync" && <SyncTranslation />}
+          {activeTab === "udt" && <SyncUdtDefinitions />}
 
           {activeTab === "cleaner" && (
             <>
