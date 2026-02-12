@@ -16,11 +16,19 @@ How it works:
 - Groups terms by key.
 - Keeps keys that have one unique value across files.
 - Flags keys with conflicting values as conflicts.
-- Excludes conflicting keys from merged output.
+- Shows conflicts in an expandable list with per-value file provenance (which value appears in which files).
+- Lets you select one value per conflicting key to include in the merged export.
+- Any conflicting key without a selected value is excluded from export.
+- Supports `Collapse` per conflict and `Collapse All` for expanded conflicts.
+
+Language validation for export:
+- Ignition translation language is inferred from the uploaded filename suffix (final `_xx` segment before extension), for example `_en`, `_pt`, `_es`.
+- All uploaded files must share the same language suffix.
+- If suffixes are mixed or missing, an inline error is shown and download is disabled.
 
 Output:
-- `merged_translations.xml`
-- Conflict list in the UI
+- `merged_translations_<language>.xml` (example: `merged_translations_en.xml`)
+- Conflict review + selection UI in the page
 
 ### 2) Sync UDT Definitons
 Upload multiple Ignition UDT definition JSON exports and compare/merge them.
