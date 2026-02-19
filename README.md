@@ -56,6 +56,10 @@ Merge rule:
 - Uses the first uploaded file as reference.
 - By default, for UDT names that exist in the reference file, the merged output keeps that reference definition.
 - If a UDT name is missing in the reference file, it keeps the first occurrence by upload order.
+- Folder/path placement is resolved separately from definition content:
+  - Removes synthetic wrapper roots like `_types_` when present in source exports.
+  - Preserves provider folders (for example `isaac`, `isaac-uns`, `main`) in the final merged file.
+  - For the same UDT name found in multiple folders across files, uses the most specific folder path (deepest path) for merged output.
 - For mismatches that are `missing properties only`, you can enable `Union merge` on that finding to include the union of unique properties from all variants in the final export.
 - `Union merge` does not override unequal-value conflicts; those continue following the reference-based rule.
 - Produces a merged JSON with unique UDT names.

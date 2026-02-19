@@ -51,12 +51,43 @@ export interface UdtSyncResult {
 }
 
 const DEFAULT_MERGED_ROOT_NAME = "merged_udt_definitions";
+const SYNTHETIC_ROOT_SEGMENTS = new Set(["_types_"]);
 
 const isJsonObject = (value: unknown): value is JsonObject =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const cloneJsonObject = (value: JsonObject): JsonObject =>
   JSON.parse(JSON.stringify(value)) as JsonObject;
+
+const isSyntheticRootSegment = (segment: string): boolean =>
+  SYNTHETIC_ROOT_SEGMENTS.has(segment.toLowerCase());
+
+const normalizePathSegments = (segments: string[]): string[] => {
+  const filtered = segments.filter((segment) => segment.trim().length > 0);
+  let firstRealIndex = 0;
+
+  while (
+    firstRealIndex < filtered.length &&
+    isSyntheticRootSegment(filtered[firstRealIndex])
+  ) {
+    firstRealIndex += 1;
+  }
+
+  return filtered.slice(firstRealIndex);
+};
+
+const normalizeRootName = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || isSyntheticRootSegment(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
+};
 
 export const normalizeJsonForDisplay = (value: JsonValue): JsonValue => {
   if (Array.isArray(value)) {
@@ -114,7 +145,12 @@ const collectUdtOccurrences = (
   const currentPath = nodeName ? [...parentPath, nodeName] : parentPath;
 
   if (node.tagType === "UdtType" && nodeName) {
-    const pathSegments = [...currentPath];
+    const pathSegments = normalizePathSegments(currentPath);
+
+    if (pathSegments.length === 0) {
+      return;
+    }
+
     output.push({
       name: nodeName,
       path: pathSegments.join("/"),
@@ -146,10 +182,11 @@ export const parseUdtFile = (
   }
 
   const udts: UdtOccurrence[] = [];
-  const rootName =
+  const rootName = normalizeRootName(
     isJsonObject(parsed) && typeof parsed.name === "string"
       ? parsed.name
-      : null;
+      : null,
+  );
 
   if (Array.isArray(parsed)) {
     for (const node of parsed) {
@@ -227,15 +264,96 @@ const relativeParentPathForRoot = (
   parentPathSegments: string[],
   mergedRootName: string,
 ): string[] => {
-  if (parentPathSegments.length === 0) {
+  const normalizedParentPathSegments = normalizePathSegments(parentPathSegments);
+  if (normalizedParentPathSegments.length === 0) {
     return [];
   }
 
-  if (parentPathSegments[0] === mergedRootName) {
-    return parentPathSegments.slice(1);
+  if (normalizedParentPathSegments[0] === mergedRootName) {
+    return normalizedParentPathSegments.slice(1);
   }
 
-  return [...parentPathSegments];
+  return normalizedParentPathSegments;
+};
+
+const chooseMergedRootName = (files: ParsedUdtFile[]): string => {
+  const candidateRoot = normalizeRootName(files[0].rootName);
+  if (!candidateRoot) {
+    return DEFAULT_MERGED_ROOT_NAME;
+  }
+
+  const referenceUdts = files[0].udts;
+  if (referenceUdts.length === 0) {
+    return candidateRoot;
+  }
+
+  const allReferenceUdtsShareCandidateRoot = referenceUdts.every(
+    (udt) => udt.pathSegments[0] === candidateRoot,
+  );
+
+  if (!allReferenceUdtsShareCandidateRoot) {
+    return DEFAULT_MERGED_ROOT_NAME;
+  }
+
+  return candidateRoot;
+};
+
+const chooseMergedParentPath = (
+  occurrences: UdtOccurrence[],
+  referenceFile: string,
+  mergedRootName: string,
+): string[] => {
+  const byPath = new Map<
+    string,
+    {
+      pathSegments: string[];
+      count: number;
+      hasReferenceOccurrence: boolean;
+    }
+  >();
+
+  for (const occurrence of occurrences) {
+    const normalizedParentPath = relativeParentPathForRoot(
+      occurrence.parentPathSegments,
+      mergedRootName,
+    );
+    const key = normalizedParentPath.join("/");
+
+    if (!byPath.has(key)) {
+      byPath.set(key, {
+        pathSegments: normalizedParentPath,
+        count: 0,
+        hasReferenceOccurrence: false,
+      });
+    }
+
+    const entry = byPath.get(key)!;
+    entry.count += 1;
+    if (occurrence.sourceFile === referenceFile) {
+      entry.hasReferenceOccurrence = true;
+    }
+  }
+
+  if (byPath.size === 0) {
+    return [];
+  }
+
+  return Array.from(byPath.values())
+    .sort((left, right) => {
+      if (right.pathSegments.length !== left.pathSegments.length) {
+        return right.pathSegments.length - left.pathSegments.length;
+      }
+
+      if (right.count !== left.count) {
+        return right.count - left.count;
+      }
+
+      if (left.hasReferenceOccurrence !== right.hasReferenceOccurrence) {
+        return left.hasReferenceOccurrence ? -1 : 1;
+      }
+
+      return left.pathSegments.join("/").localeCompare(right.pathSegments.join("/"));
+    })[0].pathSegments;
 };
 
 export const buildMergedUdtFile = (
@@ -284,7 +402,7 @@ export const syncUdtDefinitions = (files: ParsedUdtFile[]): UdtSyncResult => {
 
   const fileNames = files.map((file) => file.fileName);
   const referenceFile = files[0].fileName;
-  const mergedRootName = files[0].rootName ?? DEFAULT_MERGED_ROOT_NAME;
+  const mergedRootName = chooseMergedRootName(files);
 
   const udtsByName = new Map<string, UdtOccurrence[]>();
   const referenceByName = new Map<string, UdtOccurrence>();
@@ -364,8 +482,9 @@ export const syncUdtDefinitions = (files: ParsedUdtFile[]): UdtSyncResult => {
 
     const chosenDefinition = referenceByName.get(name) ?? occurrences[0];
     mergedByName.set(name, cloneJsonObject(chosenDefinition.definition));
-    udtParentPathsByName[name] = relativeParentPathForRoot(
-      chosenDefinition.parentPathSegments,
+    udtParentPathsByName[name] = chooseMergedParentPath(
+      occurrences,
+      referenceFile,
       mergedRootName,
     );
   }
