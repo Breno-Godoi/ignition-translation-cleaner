@@ -85,6 +85,13 @@ button.collapse-all-btn {
   line-height: 1.1;
 }
 
+button.compact-action-btn {
+  min-width: auto !important;
+  width: auto;
+  padding: 0.2rem 0.6rem;
+  line-height: 1.1;
+}
+
 /* Alerts */
 .alert {
   border-radius: 0.4rem;

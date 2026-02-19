@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import {
+  buildMergedUdtFile,
   normalizeJsonForDisplay,
   parseUdtFile,
   syncUdtDefinitions,
@@ -623,6 +624,22 @@ const renderJsonWithHighlights = (
 
 const formatDifferencePathLabel = (path: string): string => path || "(root)";
 
+const splitPathSegments = (path: string): string[] =>
+  path.split("/").filter((segment) => segment.length > 0);
+
+const formatUdtPathForDisplay = (path: string): string => {
+  const segments = splitPathSegments(path);
+  return segments.length > 0 ? segments.join(" / ") : "(root)";
+};
+
+const formatParentFolderPathForDisplay = (path: string): string => {
+  const segments = splitPathSegments(path);
+  if (segments.length <= 1) {
+    return "(root)";
+  }
+  return segments.slice(0, -1).join(" / ");
+};
+
 const formatVariantReferenceList = (
   variantIndexes: number[],
   variants: { files: string[] }[],
@@ -784,15 +801,11 @@ const SyncUdtDefinitions: React.FC = () => {
       mergedByName.set(unionDefinition.name, deepCloneJsonObject(unionDefinition));
     }
 
-    const mergedUdts = Array.from(mergedByName.entries())
-      .sort(([nameA], [nameB]) => nameA.localeCompare(nameB))
-      .map(([, definition]) => definition);
-
-    return {
-      name: "merged_udt_definitions",
-      tagType: "Folder",
-      tags: mergedUdts,
-    } as JsonObject;
+    return buildMergedUdtFile(
+      syncResult.mergedRootName,
+      mergedByName,
+      syncResult.udtParentPathsByName,
+    );
   }, [syncResult, unionMergeSelections, differenceInspectionByName]);
 
   const appliedUnionMergeCount = useMemo(() => {
@@ -1383,12 +1396,26 @@ const SyncUdtDefinitions: React.FC = () => {
                                     <div className="card-body">
                                       <div className="d-flex justify-content-between align-items-center gap-2 mb-1">
                                         <div className="small text-body-secondary text-break">
-                                          {variantCard.example.fileName}:{" "}
-                                          {variantCard.example.path}
+                                          <div>
+                                            UDT path:{" "}
+                                            <code>
+                                              {formatUdtPathForDisplay(
+                                                variantCard.example.path,
+                                              )}
+                                            </code>
+                                          </div>
+                                          <div>
+                                            Parent folder:{" "}
+                                            <code>
+                                              {formatParentFolderPathForDisplay(
+                                                variantCard.example.path,
+                                              )}
+                                            </code>
+                                          </div>
                                         </div>
                                         <button
                                           type="button"
-                                          className="btn btn-sm btn-outline-info flex-shrink-0"
+                                          className="btn btn-sm btn-outline-info flex-shrink-0 compact-action-btn"
                                           onClick={() =>
                                             handleCopySnippet(
                                               snippetId,
@@ -1557,22 +1584,39 @@ const SyncUdtDefinitions: React.FC = () => {
             Merged {syncResult.mergedUdts.length} unique UDT definitions.
           </p>
           {syncResult.udtsWithDefinitionDifferences > 0 && (
-            <p className="mb-3">
-              By default, mismatched UDT names keep the reference file version (
-              {syncResult.referenceFile}).
-              {appliedUnionMergeCount > 0 && (
-                <>
-                  {" "}
-                  Union merge is applied to {appliedUnionMergeCount}{" "}
-                  {pluralize(
-                    appliedUnionMergeCount,
-                    "missing-only mismatch",
-                    "missing-only mismatches",
+            <>
+              <p className="mb-2">
+                By default, mismatched UDT names keep the reference file version (
+                {syncResult.referenceFile}).
+              </p>
+              <div className="small rounded border border-success-subtle bg-body-tertiary p-2 mb-3">
+                <div>
+                  <strong>Merge UDTs:</strong> exports the full merged file with all
+                  unique UDT names.
+                </div>
+                <div>
+                  <strong>Union merge toggle:</strong> only changes UDTs where the
+                  mismatch is <em>missing properties only</em>; when enabled, that UDT
+                  includes missing properties from all variants.
+                </div>
+                <div>
+                  <strong>Important:</strong> unequal-value mismatches are not
+                  auto-merged by union and still follow the reference file version.
+                  {appliedUnionMergeCount > 0 && (
+                    <>
+                      {" "}
+                      Union merge is currently enabled for {appliedUnionMergeCount}{" "}
+                      {pluralize(
+                        appliedUnionMergeCount,
+                        "mismatch",
+                        "mismatches",
+                      )}
+                      .
+                    </>
                   )}
-                  .
-                </>
-              )}
-            </p>
+                </div>
+              </div>
+            </>
           )}
           <button className="btn btn-success" onClick={handleDownloadMergedUdts}>
             Merge UDTs

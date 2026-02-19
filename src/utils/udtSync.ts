@@ -8,6 +8,8 @@ export interface JsonObject {
 export interface UdtOccurrence {
   name: string;
   path: string;
+  pathSegments: string[];
+  parentPathSegments: string[];
   sourceFile: string;
   definition: JsonObject;
   canonical: string;
@@ -15,6 +17,7 @@ export interface UdtOccurrence {
 
 export interface ParsedUdtFile {
   fileName: string;
+  rootName: string | null;
   udts: UdtOccurrence[];
 }
 
@@ -40,10 +43,14 @@ export interface UdtSyncResult {
   totalUniqueUdts: number;
   udtsWithDefinitionDifferences: number;
   udtsMissingInSomeFiles: number;
+  mergedRootName: string;
+  udtParentPathsByName: Record<string, string[]>;
   differences: UdtDifference[];
   mergedUdts: JsonObject[];
   mergedFile: JsonObject;
 }
+
+const DEFAULT_MERGED_ROOT_NAME = "merged_udt_definitions";
 
 const isJsonObject = (value: unknown): value is JsonObject =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -107,9 +114,12 @@ const collectUdtOccurrences = (
   const currentPath = nodeName ? [...parentPath, nodeName] : parentPath;
 
   if (node.tagType === "UdtType" && nodeName) {
+    const pathSegments = [...currentPath];
     output.push({
       name: nodeName,
-      path: currentPath.join("/"),
+      path: pathSegments.join("/"),
+      pathSegments,
+      parentPathSegments: pathSegments.slice(0, -1),
       sourceFile,
       definition: cloneJsonObject(node),
       canonical: canonicalizeJson(node),
@@ -136,6 +146,10 @@ export const parseUdtFile = (
   }
 
   const udts: UdtOccurrence[] = [];
+  const rootName =
+    isJsonObject(parsed) && typeof parsed.name === "string"
+      ? parsed.name
+      : null;
 
   if (Array.isArray(parsed)) {
     for (const node of parsed) {
@@ -145,7 +159,122 @@ export const parseUdtFile = (
     collectUdtOccurrences(parsed, [], fileName, udts);
   }
 
-  return { fileName, udts };
+  return { fileName, rootName, udts };
+};
+
+const getTagsArray = (node: JsonObject): JsonValue[] => {
+  if (Array.isArray(node.tags)) {
+    return node.tags as JsonValue[];
+  }
+  node.tags = [];
+  return node.tags as JsonValue[];
+};
+
+const ensureFolderChild = (
+  parentNode: JsonObject,
+  folderName: string,
+): JsonObject => {
+  const tags = getTagsArray(parentNode);
+
+  for (const child of tags) {
+    if (
+      isJsonObject(child) &&
+      child.tagType === "Folder" &&
+      child.name === folderName
+    ) {
+      return child;
+    }
+  }
+
+  const folder: JsonObject = {
+    name: folderName,
+    tagType: "Folder",
+    tags: [],
+  };
+
+  tags.push(folder);
+  return folder;
+};
+
+const nodeNameForSort = (node: JsonValue): string =>
+  isJsonObject(node) && typeof node.name === "string" ? node.name : "";
+
+const nodeIsFolder = (node: JsonValue): boolean =>
+  isJsonObject(node) && node.tagType === "Folder";
+
+const sortFolderTree = (node: JsonObject): void => {
+  const tags = getTagsArray(node);
+
+  for (const child of tags) {
+    if (nodeIsFolder(child)) {
+      sortFolderTree(child as JsonObject);
+    }
+  }
+
+  tags.sort((left, right) => {
+    const leftIsFolder = nodeIsFolder(left);
+    const rightIsFolder = nodeIsFolder(right);
+
+    if (leftIsFolder !== rightIsFolder) {
+      return leftIsFolder ? -1 : 1;
+    }
+
+    return nodeNameForSort(left).localeCompare(nodeNameForSort(right));
+  });
+};
+
+const relativeParentPathForRoot = (
+  parentPathSegments: string[],
+  mergedRootName: string,
+): string[] => {
+  if (parentPathSegments.length === 0) {
+    return [];
+  }
+
+  if (parentPathSegments[0] === mergedRootName) {
+    return parentPathSegments.slice(1);
+  }
+
+  return [...parentPathSegments];
+};
+
+export const buildMergedUdtFile = (
+  mergedRootName: string,
+  mergedByName: Map<string, JsonObject>,
+  udtParentPathsByName: Record<string, string[]>,
+): JsonObject => {
+  const root: JsonObject = {
+    name: mergedRootName.trim() || DEFAULT_MERGED_ROOT_NAME,
+    tagType: "Folder",
+    tags: [],
+  };
+
+  const sortedUdtNames = Array.from(mergedByName.keys()).sort((a, b) =>
+    a.localeCompare(b),
+  );
+
+  for (const udtName of sortedUdtNames) {
+    const definition = mergedByName.get(udtName);
+    if (!definition) {
+      continue;
+    }
+
+    const parentPathSegments = udtParentPathsByName[udtName] ?? [];
+    let containerNode = root;
+
+    for (const pathSegment of parentPathSegments) {
+      if (pathSegment.trim().length === 0) {
+        continue;
+      }
+
+      containerNode = ensureFolderChild(containerNode, pathSegment);
+    }
+
+    getTagsArray(containerNode).push(cloneJsonObject(definition));
+  }
+
+  sortFolderTree(root);
+  return root;
 };
 
 export const syncUdtDefinitions = (files: ParsedUdtFile[]): UdtSyncResult => {
@@ -155,9 +284,11 @@ export const syncUdtDefinitions = (files: ParsedUdtFile[]): UdtSyncResult => {
 
   const fileNames = files.map((file) => file.fileName);
   const referenceFile = files[0].fileName;
+  const mergedRootName = files[0].rootName ?? DEFAULT_MERGED_ROOT_NAME;
 
   const udtsByName = new Map<string, UdtOccurrence[]>();
   const referenceByName = new Map<string, UdtOccurrence>();
+  const udtParentPathsByName: Record<string, string[]> = {};
 
   for (const udt of files[0].udts) {
     if (!referenceByName.has(udt.name)) {
@@ -233,17 +364,21 @@ export const syncUdtDefinitions = (files: ParsedUdtFile[]): UdtSyncResult => {
 
     const chosenDefinition = referenceByName.get(name) ?? occurrences[0];
     mergedByName.set(name, cloneJsonObject(chosenDefinition.definition));
+    udtParentPathsByName[name] = relativeParentPathForRoot(
+      chosenDefinition.parentPathSegments,
+      mergedRootName,
+    );
   }
 
   const mergedUdts = Array.from(mergedByName.entries())
     .sort(([nameA], [nameB]) => nameA.localeCompare(nameB))
-    .map(([, definition]) => definition);
+    .map(([, definition]) => cloneJsonObject(definition));
 
-  const mergedFile: JsonObject = {
-    name: "merged_udt_definitions",
-    tagType: "Folder",
-    tags: mergedUdts,
-  };
+  const mergedFile = buildMergedUdtFile(
+    mergedRootName,
+    mergedByName,
+    udtParentPathsByName,
+  );
 
   differences.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -257,6 +392,8 @@ export const syncUdtDefinitions = (files: ParsedUdtFile[]): UdtSyncResult => {
     udtsMissingInSomeFiles: differences.filter(
       (difference) => difference.missingIn.length > 0,
     ).length,
+    mergedRootName,
+    udtParentPathsByName,
     differences,
     mergedUdts,
     mergedFile,

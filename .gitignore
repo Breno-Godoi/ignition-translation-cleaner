@@ -26,3 +26,6 @@ dist-ssr
 
 # Local examples and test fixtures
 files_examples/
+
+# Local development context (do not commit)
+.context/
