@@ -35,7 +35,7 @@ function App() {
         <div className="col-lg-10 col-md-12">
 
           <div className="position-relative mb-4">
-            <h2 className="m-0 w-100 text-center">Ignition Syncing Tool</h2>
+            <h2 className="m-0 w-100 text-center">Ignition Sync Workbench</h2>
             <div className="form-check form-switch position-absolute top-0 end-0">
 
               <input

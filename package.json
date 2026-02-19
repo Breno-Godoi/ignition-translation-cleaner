@@ -1,5 +1,5 @@
 {
-  "name": "ignition-translation-cleaner",
+  "name": "ignition-sync-workbench",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -17,7 +17,7 @@
   },
   "build": {
     "appId": "com.ignition.translationcleaner",
-    "productName": "Ignition Syncing Tool",
+    "productName": "Ignition Sync Workbench",
     "compression": "maximum",
     "directories": {
       "output": "release"

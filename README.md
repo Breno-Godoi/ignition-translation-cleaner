@@ -1,4 +1,4 @@
-# Ignition Syncing Tool
+# Ignition Sync Workbench
 
 React + TypeScript application for syncing and reviewing Ignition exports.
 
@@ -102,7 +102,7 @@ For `Sync Translation`, `Sync UDT Definitons`, and `Translation Cleaner`:
 - Vite 6
 - Electron 38
 - Bootstrap 5
-- `fast-xml-parser` 5.3.4
+- `fast-xml-parser` 5.3.6
 - `jszip` 3
 
 ## Requirements
@@ -151,8 +151,8 @@ npm run build:app
 This builds web assets and packages Electron using `electron-builder`.
 
 Windows artifacts (from current config):
-- Installer (NSIS): `release/Ignition Syncing Tool Setup <version>.exe`
-- Portable executable: `release/Ignition Syncing Tool <version>.exe`
+- Installer (NSIS): `release/Ignition Sync Workbench Setup <version>.exe`
+- Portable executable: `release/Ignition Sync Workbench <version>.exe`
 
 Build only the Windows portable executable:
 ```bash
